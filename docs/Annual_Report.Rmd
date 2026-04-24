@@ -1,0 +1,80 @@
+---
+title: "Annual Plant Community and Monitoring Report - `r params$park`: `r format(Sys.Date(), '%Y-%m-%d')`"
+output: 
+  html_document:
+    css: www/styles.css
+    anchor_sections: FALSE
+    includes:
+      in_header: "header_manual.html"
+
+params:
+  park: "DefaultPark"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+
+library(tidyverse)
+```
+
+## Data Summaries {.tabset}
+```{r testingdataset}
+park <- c("AGFO", "AGFO", "BADL", "DETO", "BADL", "DETO")
+cover <- c("12", "11", "16", "13", "12", "17")
+species <- c("brja", "brja", "brja", "brdi", "brdi","brdi")
+
+park_data <- data.frame(park = park,
+                        cover = cover,
+                        species = species)
+```
+
+```{r filtering park}
+park_filter <- park_data |> 
+  filter(park == params$park)
+```
+
+
+### Map of `r params$park`
+
+```{r plot1}
+ggplot() +
+  geom_col(data = park_filter,
+           aes(x = species,
+               y = cover))
+```
+
+### Table of Plot visits 
+
+```{r plot2}
+ggplot() +
+  geom_col(data = park_filter,
+           aes(x = species,
+               y = cover))
+```
+
+### Table of Exotic Species 
+
+```{r plot3}
+ggplot() +
+  geom_col(data = park_filter,
+           aes(x = species,
+               y = cover))
+```
+
+### Table of Species
+
+```{r plot4}
+ggplot() +
+  geom_col(data = park_filter,
+           aes(x = species,
+               y = cover))
+```
+
+### Table of Plot visits
+
+```{r plot5}
+ggplot() +
+  geom_col(data = park_filter,
+           aes(x = species,
+               y = cover))
+```
