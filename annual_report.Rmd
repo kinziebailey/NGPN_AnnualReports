@@ -1,0 +1,348 @@
+---
+title: "Annual Plant Community and Monitoring Report - `r params$park`: `r format(Sys.Date(), '%Y-%m-%d')`"
+output:
+  html_document:
+    
+params:
+  park: "AGFO"
+  park_full: "Agate Fossil Beds National Monument"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r data wrangling, message=FALSE, warning=FALSE}
+# ===== Libraries =====
+
+library(dplyr)
+library(readr)
+library(ggplot2)
+library(zoo)
+library(stringr)
+library(tidyr)
+library(scales)
+
+# ===== Inputs & constants =====
+cur_park     <- params$park         # short code, e.g., "AGFO"
+cur_park_full<- params$park_full    # full name, e.g., "Agate Fossil Beds National Monument"
+
+base_folder <- "./data/07_Publishing_DataStore/"
+
+# Richness file: N:/.../<PARK>/<PARK>_PCM_RichnessPlots_2011-2024.csv
+richness_file <- file.path(
+  base_folder, cur_park, paste0(cur_park, "_PCM_RichnessPlots_2011-2024.csv")
+)
+
+# Abundance file: N:/.../AbundanceLPI_ver2/<PARK>_PCM_VegAbundance_LPI_2011-2024_ver2.csv
+abundance_file <- file.path(
+  base_folder, "AbundanceLPI_ver2", paste0(cur_park, "_PCM_VegAbundance_LPI_2011-2024_ver2.csv")
+)
+
+# ===== Helper: assert file exists =====
+assert_exists <- function(path) {
+  if (!file.exists(path)) {
+    stop(sprintf("File not found: %s\nCheck path and filename for park '%s'.", path, cur_park, cur_park_full), call. = FALSE)
+  }
+}
+
+assert_exists(richness_file)
+assert_exists(abundance_file)
+
+# ===== Read data =====
+richness_df <- read.csv(richness_file, stringsAsFactors = FALSE)
+abundance_df <- read.csv(abundance_file, stringsAsFactors = FALSE)
+
+# Add Park column explicitly (avoid reliance on Name prefix if ever inconsistent)
+richness_df$Park  <- cur_park
+abundance_df$Park <- cur_park
+
+# ===== Keep expected columns (robust to missing ones) =====
+rich_keep <- c("Name","Hillslope","Azimuth","Elevation","UTM_Y","UTM_X",
+               "Year","Family","Scientific_Name","Subfrac","Native_Species","Park")
+richness_df <- richness_df[, intersect(rich_keep, names(richness_df)), drop = FALSE]
+
+abund_keep <- c("Name","HillSlope","Azimuth","Elevation","UTM_Zone","UTM_Y","UTM_X",
+                "Year","Pts_Tran","Lifeform","Scientific_Name","Native_Species","Count","Park")
+abundance_df <- abundance_df[, intersect(abund_keep, names(abundance_df)), drop = FALSE]
+
+# ===== Fix Pts_Tran NAs per site (Name) using LOCF =====
+if ("Pts_Tran" %in% names(abundance_df)) {
+  abundance_df <- abundance_df %>%
+    group_by(Park, Name) %>%
+    mutate(Pts_Tran = zoo::na.locf(Pts_Tran, na.rm = FALSE)) %>%
+    ungroup()
+}
+
+# ===== Compute recent years safely =====
+rich_recent_year <- richness_df %>%
+  summarise(recent = suppressWarnings(max(Year, na.rm = TRUE))) %>%
+  pull(recent)
+
+abund_recent_year <- abundance_df %>%
+  summarise(recent = suppressWarnings(max(Year, na.rm = TRUE))) %>%
+  pull(recent)
+
+# Guard against all-NA or empty Year
+if (is.infinite(rich_recent_year) || is.na(rich_recent_year)) rich_recent_year <- max(richness_df$Year, na.rm = TRUE)
+if (is.infinite(abund_recent_year) || is.na(abund_recent_year)) abund_recent_year <- max(abundance_df$Year, na.rm = TRUE)
+
+# ===== Filter windows, clean names =====
+richness_df_park <- richness_df %>%
+  filter(Subfrac != 10) %>%
+  filter(!grepl("Unknown", Scientific_Name, ignore.case = TRUE)) 
+
+abundance_df_park <- abundance_df %>%
+  filter(Lifeform != "Undefined", Lifeform != "") %>%
+  filter(Pts_Tran == 50) %>%
+  filter(!grepl("Unknown", Scientific_Name, ignore.case = TRUE)) %>%
+  filter(Year >= (abund_recent_year - 10)) %>%
+  filter(!is.na(Scientific_Name)) %>%
+  mutate(Scientific_Name = str_squish(Scientific_Name)) %>%
+  filter(str_count(Scientific_Name, "\\S+") == 2)
+
+
+# ===== Summaries =====
+num_richness_df <- richness_df_park %>%
+   group_by(Park,Year) %>%
+  mutate(SurveyCount = n_distinct(Name)) %>%
+  mutate(SpRichness = n_distinct(Scientific_Name))%>%
+  mutate(AvgRichness = SpRichness/SurveyCount) %>%
+  select(Park,Year,AvgRichness) %>%
+  distinct()
+
+brome_df <- abundance_df_park %>%
+  filter(Scientific_Name %in% c("Bromus tectorum", "Bromus japonicus")) %>%
+  group_by(Park, Name, Year) %>%
+  summarise(TotalBrome = sum(Count, na.rm = TRUE), .groups = "drop")
+
+brome_df<- brome_df %>%
+  group_by(Park,Year) %>%
+  mutate(SurveyCount = n_distinct(Name)) %>%
+  mutate(AvgBrome = TotalBrome/SurveyCount) %>%
+  select(Park,Year,AvgBrome) %>%
+  distinct()
+
+native_df <- abundance_df_park %>%
+  filter(Native_Species == "TRUE") %>%
+  group_by(Park, Name, Year) %>%
+  summarise(TotalNatives = sum(Count, na.rm = TRUE), .groups = "drop")
+
+nonnative_df <- abundance_df_park %>%
+  filter(Native_Species == "FALSE") %>%
+  group_by(Park, Name, Year) %>%
+  summarise(TotalnonNatives = sum(Count, na.rm = TRUE), .groups = "drop")
+
+
+# Species-level abundances (for evenness calc)
+abundances_df <- abundance_df_park %>%
+  group_by(Park, Name, Year, Scientific_Name) %>%
+  summarise(n = sum(Count, na.rm = TRUE), .groups = "drop")
+
+# Evenness function (Pielou's J')
+calculate_evenness <- function(abundance_vector) {
+  abundance_vector <- abundance_vector[abundance_vector > 0]
+  total_abundance <- sum(abundance_vector)
+  S <- length(abundance_vector)
+  if (S == 0 || total_abundance == 0) return(NA_real_)
+  p <- abundance_vector / total_abundance
+  H <- -sum(p * log(p))
+  H / log(S)
+}
+
+evenness_df <- abundances_df %>%
+  group_by(Park, Name, Year) %>%
+  summarise(Evenness = calculate_evenness(n), .groups = "drop")
+
+evenness_df<- evenness_df %>%
+  group_by(Park,Year) %>%
+  mutate(SurveyCount = n_distinct(Name)) %>%
+  mutate(AvgEven = Evenness/SurveyCount) %>%
+  select(Park,Year,AvgEven) %>%
+  distinct()
+
+# Convenience palette
+pal_blue  <- "#2C7FB8"
+pal_orange<- "#D95F02"
+pal_green <- "#1B9E77"
+```
+
+## {.tabset}
+
+### Overview
+
+::: {.header-three}
+<strong>Background</strong>
+:::
+The Inventory and Monitoring (I&M) Program collects and interprets information related to composition and condition of natural resources within National Park units, as directed by Congress, Superintendents, and Resource Managers, to support management and conservation of Parks, Monuments and Historic Sites. This report presents the results of vegetation monitoring efforts in 2011–2025 at 11 parks in the northern Great Plains by the Northern Great Plains Inventory and Monitoring Network (NGPN).
+
+::: {.header-three}
+<strong>Field Methods</strong>
+:::
+The NGPN Plant Community Composition and Structure Monitoring Protocol (Symstad et al. 2012b, a) describes in detail the methods used for sampling long-term plots. The general approach is briefly described below. For more detail, please see the monitoring protocol and standard operating procedures, available at https://www.nps.gov/im/ngpn/plant-communities.htm.
+
+Annual samples are determined by a rotating-panel design which provides well-distributed, random locations (spatially balanced design) with repeated visits and a rotation structure to divide effort across time (years). Using this framework, we gather information across the diverse and heterogeneous habitats in the Monument to describe conditions across the unit and track changes in vegetation, fuels and habitat over time. Field methods include point-frequency transects (line-point intercept, LPI) to quantify abundance, replicated small plots (1m2) for composition, large plots for woody regeneration, shrubs, trees and early-detection weed survey. When woody species are present, fuel transects are also surveyed per Fire Effects protocols.
+
+::: {.header-three}
+<strong>Trend Analyses</strong>
+:::
+We fit generalized additive models (GAM) to estimate trends in diversity (i.e. species richness and evenness) and average counts of invasive brome species using the mgcv package in R version 4.5.2. GAMs are non-linear models that allow for inclusion of covariates of interest, in this case year. Summary statistics were also used to show changes in the relative abundances between native and non-native plants through time.
+
+### Species Richness
+
+::: {.header-three}
+<strong>Main Takeaways</strong>
+:::
+* Main takeaways here.
+
+```{r richness-plot, fig.width=7, fig.height=4}
+if (nrow(num_richness_df) > 0) {
+  ggplot(num_richness_df, aes( x=Year, y=AvgRichness, color=Park))+
+    geom_point()+
+    geom_smooth(method = "gam", formula = y ~ s(x, k = 5))+
+    ylab("Avg Species Richness per Plot")+
+    xlab("")+
+    scale_color_brewer(palette = "Paired")+
+    scale_x_continuous(breaks = pretty_breaks())+
+    theme(axis.line = element_line(colour = "black"),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      panel.border = element_blank(),
+      panel.background = element_blank())
+} else {
+  plot.new(); title("No richness data available for the last 10 years.")
+}
+```
+
+::: {.caption}
+<strong>Figure 1.</strong> This is the species richness for `r params$park` from 2009 through 2024.
+:::
+
+### Species Evenness
+
+::: {.header-three}
+<strong>Main Takeaways</strong>
+:::
+* Main takeaways here.
+
+```{r evenness-plot, fig.width=7, fig.height=4}
+if (nrow(evenness_df) > 0) {
+  ggplot(evenness_df, aes( x=Year, y=AvgEven, color=Park))+
+    geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 5), se=TRUE)+
+  ylab("Avg Evenness per Plot")+
+  xlab("")+
+  scale_x_continuous(breaks = pretty_breaks())+
+  theme(axis.line = element_line(colour = "black"),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_blank(),
+    panel.background = element_blank())
+} else {
+  plot.new(); title("No evenness data available for the filtered window.")
+}
+```
+
+::: {.caption}
+<strong>Figure 2.</strong> The average species evenness for `r params$park` from 2014 to 2024.
+:::
+
+### Annual Brome Count
+
+::: {.header-three}
+<strong>Main Takeaways</strong>
+:::
+* Main takeaways here.
+
+```{r brome-plot, fig.width=7, fig.height=4}
+if (nrow(brome_df) > 0) {
+  ggplot(brome_df, aes( x=Year, y=AvgBrome, color=Park))+
+    geom_point()+
+    geom_smooth(method = "gam", formula = y ~ s(x, k = 5), se=TRUE)+
+    ylab("Avg Annual Brome Count per Plot")+
+    xlab("")+
+    scale_x_continuous(breaks = pretty_breaks())+
+    theme(axis.line = element_line(colour = "black"),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      panel.border = element_blank(),
+      panel.background = element_blank())
+} else {
+  plot.new(); title("No Bromus tectorum/japonicus data in the filtered window.")
+}
+```
+
+::: {.caption}
+<strong>Figure 3.</strong> The average annual brome count for `r params$park` from 2014 to 2024. 
+:::
+
+### Native vs Non-Native
+
+::: {.header-three}
+<strong>Main Takeaways</strong>
+:::
+* Main takeaways here.
+
+```{r natives-nonnatives, fig.width=7, fig.height=4}
+totals_df <- native_df %>%
+  full_join(nonnative_df, by = c("Park","Name","Year")) %>%
+  group_by(Park, Year) %>%
+  summarise(
+    SurveyCount      = n_distinct(Name),
+    TotalNatives     = sum(TotalNatives, na.rm = TRUE),
+    TotalnonNatives  = sum(TotalnonNatives, na.rm = TRUE),
+    .groups = "drop") %>%
+  mutate(AvgnonNative = TotalnonNatives/SurveyCount) %>%
+  mutate(AvgNative = TotalNatives/SurveyCount) %>%
+  select(Park,Year,SurveyCount,AvgnonNative,AvgNative) %>%
+  distinct() %>%
+  tidyr::pivot_longer(cols = c(AvgNative, AvgnonNative), names_to = "Group", values_to = "Total")
+
+if (nrow(totals_df) > 0) {
+  ggplot(totals_df, aes(Year, Total, fill = Group)) +
+    geom_col(position = "stack") +
+    scale_fill_manual(values = c(AvgNative = pal_green, AvgnonNative = pal_orange),
+                      name = "Group", labels = c("Native", "Non-native")) +
+    labs(
+      # title = paste0("Average — Native vs Non-native (", cur_park, ")"),
+         x = "Year", y = "Average LPI counts") +
+    theme_minimal()
+} else {
+  plot.new(); title("No native/non-native totals available for the filtered window.")
+}
+```
+
+::: {.caption}
+<strong>Figure 4.</strong> The average LPI counts for native vs non-native plants at `r params$park`
+:::
+
+### Species Table
+
+::: {.header-three}
+<strong>Main Takeaways</strong>
+:::
+* Main takeaways here.
+
+```{r top-species-table, echo = FALSE}
+if (nrow(abundance_df_park) > 0) {
+  recent_window_year <- max(abundance_df_park$Year, na.rm = TRUE)
+  top_species <- abundance_df_park %>%
+    filter(Year == recent_window_year) %>%
+    group_by(Scientific_Name) %>%
+    summarise(Total = sum(Count, na.rm = TRUE), .groups = "drop") %>%
+    arrange(desc(Total)) %>%
+    slice_head(n = 10) 
+
+  knitr::kable(top_species, 
+               caption = paste0("Top 10 species by abundance — ", 
+                                cur_park, " (Year ", recent_window_year, ")"),
+               col.names = c("Scientific Name",
+                             "Total"))
+} else {
+  cat("No abundance data to list top species for the filtered window.")
+}
+```
+
+::: {.caption}
+<strong>Table 1.</strong> The top 10 species by abundance at `r params$park` for 2024.
+:::
