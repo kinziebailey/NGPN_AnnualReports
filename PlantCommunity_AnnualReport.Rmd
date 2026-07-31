@@ -1,0 +1,104 @@
+---
+title: "Annual Plant Community and Monitoring Report - `r params$park`: `r format(Sys.Date(), '%Y-%m-%d')`"
+output:
+  html_document:
+    
+params:
+  park: "AGFO"
+  park_full: "Agate Fossil Beds National Monument"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r libraries, message=FALSE, warning=FALSE}
+# Libraries 
+library(readr) # tidyverse data import
+library(dplyr) # data wrangling
+library(ggplot2) # plotting
+library(knitr) # for kable
+library(kableExtra) # custom kable features 
+```
+
+```{r data, include=FALSE}
+# Loading data 
+
+# selecting park 
+# df_park <- df[df$park == params$park]
+```
+
+```{r source, include=FALSE}
+# source(PlantCommunity_AnnualReport_compile.R)
+```
+
+## {.tabset}
+
+### Overview
+
+#### Background 
+
+The Inventory and Monitoring (I&M) Program collects and interprets information related to composition and condition of natural resources within National Park units, as directed by Congress, Superintendents, and Resource Managers, to support management and conservation of Parks, Monuments and Historic Sites. This report presents the results of vegetation monitoring efforts in 2011–2025 at 11 parks in the northern Great Plains by the Northern Great Plains Inventory and Monitoring Network (NGPN).
+
+#### Field Methods 
+
+The NGPN Plant Community Composition and Structure Monitoring Protocol (Symstad et al. 2012b, a) describes in detail the methods used for sampling long-term plots. The general approach is briefly described below. For more detail, please see the monitoring protocol and standard operating procedures, available at https://www.nps.gov/im/ngpn/plant-communities.htm.
+
+Annual samples are determined by a rotating-panel design which provides well-distributed, random locations (spatially balanced design) with repeated visits and a rotation structure to divide effort across time (years). Using this framework, we gather information across the diverse and heterogeneous habitats in the Monument to describe conditions across the unit and track changes in vegetation, fuels and habitat over time. Field methods include point-frequency transects (line-point intercept, LPI) to quantify abundance, replicated small plots (1m2) for composition, large plots for woody regeneration, shrubs, trees and early-detection weed survey. When woody species are present, fuel transects are also surveyed per Fire Effects protocols.
+
+### Map
+
+#### Main Takeaways 
+```{r map_takeaways, results='asis', include=FALSE}
+htmltools::includeHTML(file.path("main_takeaways",
+                                 params$park,
+                                 past0(params$park,
+                                       "_map.html")))
+```
+
+
+```{r map, include=FALSE}
+# create_map(df_park)
+```
+
+### Species List
+
+#### Main Takeaways 
+```{r species_takeaways, results='asis', include=FALSE}
+htmltools::includeHTML(file.path("main_takeaways",
+                                 params$park,
+                                 past0(params$park,
+                                       "_specieslist.html")))
+```
+
+```{r species_table, inlcude=FALSE}
+# species_table(df_park)
+```
+
+### Percent Cover
+
+#### Main Takeaways 
+```{r percentcover_takeaways, results='asis', include=FALSE}
+htmltools::includeHTML(file.path("main_takeaways",
+                                 params$park,
+                                 past0(params$park,
+                                       "_percentcover.html")))
+```
+
+```{r percent_cover_table, include=FALSE}
+# table(df_park)
+```
+
+### Annual Summary Comparision
+
+#### Main Takeaways 
+```{r map_takeaways, results='asis', include=FALSE}
+htmltools::includeHTML(file.path("main_takeaways",
+                                 params$park,
+                                 past0(params$park,
+                                       "_annualsummary.html")))
+```
+
+```{r summary_plot, include=FALSE}
+# plot(df_park)
+```

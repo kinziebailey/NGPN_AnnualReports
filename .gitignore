@@ -6,3 +6,4 @@ data/
 reports/
 GWCAmarkdownReport2025Version4.Rmd
 *.html
+.positai
