@@ -9,28 +9,25 @@ params:
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = FALSE)
-```
-
-```{r libraries, message=FALSE, warning=FALSE}
-# Libraries 
-library(readr) # tidyverse data import
-library(dplyr) # data wrangling
-library(ggplot2) # plotting
-library(knitr) # for kable
-library(kableExtra) # custom kable features 
-```
-
-```{r data, include=FALSE}
-# Loading data 
-
-# selecting park 
-# df_park <- df[df$park == params$park]
+knitr::opts_chunk$set(echo = FALSE, 
+                      message = FALSE, 
+                      warning = FALSE)
 ```
 
 ```{r source, include=FALSE}
-# source(PlantCommunity_AnnualReport_compile.R)
+source("PlantCommunity_AnnualReport_compile.R")
 ```
+
+```{r data, include=FALSE}
+# current years data
+df_park <- covpts_current |> 
+  dplyr::filter(Unit_Name == params$park)
+
+# historic data
+df_historic <- covpts_historic |> 
+  dplyr::filter(Unit_Name == params$park)
+```
+
 
 ## {.tabset}
 
@@ -49,56 +46,62 @@ Annual samples are determined by a rotating-panel design which provides well-dis
 ### Map
 
 #### Main Takeaways 
-```{r map_takeaways, results='asis', include=FALSE}
+```{r map_takeaways_map, results='asis'}
 htmltools::includeHTML(file.path("main_takeaways",
                                  params$park,
-                                 past0(params$park,
-                                       "_map.html")))
+                                 paste0(params$park,
+                                        "_map.html")))
 ```
 
 
-```{r map, include=FALSE}
-# create_map(df_park)
+```{r map}
+# preping data 
+map_data <- prep_map(df_park)
+
+# mapping data 
+create_map(map_data)
 ```
 
 ### Species List
 
 #### Main Takeaways 
-```{r species_takeaways, results='asis', include=FALSE}
+```{r species_takeaways, results='asis'}
 htmltools::includeHTML(file.path("main_takeaways",
                                  params$park,
-                                 past0(params$park,
-                                       "_specieslist.html")))
+                                 paste0(params$park,
+                                        "_specieslist.html")))
 ```
 
-```{r species_table, inlcude=FALSE}
-# species_table(df_park)
+```{r species_table}
+species_data <- prep_species(df_park)
+
+species_table(species_data)
 ```
 
 ### Percent Cover
 
 #### Main Takeaways 
-```{r percentcover_takeaways, results='asis', include=FALSE}
-htmltools::includeHTML(file.path("main_takeaways",
-                                 params$park,
-                                 past0(params$park,
-                                       "_percentcover.html")))
+```{r percentcover_takeaways, results='asis'}
+# htmltools::includeHTML(file.path("main_takeaways",
+#                                  params$park,
+#                                  past0(params$park,
+#                                        "_percentcover.html")))
 ```
 
-```{r percent_cover_table, include=FALSE}
+```{r percent_cover_table}
 # table(df_park)
 ```
 
 ### Annual Summary Comparision
 
 #### Main Takeaways 
-```{r map_takeaways, results='asis', include=FALSE}
-htmltools::includeHTML(file.path("main_takeaways",
-                                 params$park,
-                                 past0(params$park,
-                                       "_annualsummary.html")))
+```{r map_takeaways_annual, results='asis'}
+# htmltools::includeHTML(file.path("main_takeaways",
+#                                  params$park,
+#                                  past0(params$park,
+#                                        "_annualsummary.html")))
 ```
 
-```{r summary_plot, include=FALSE}
+```{r summary_plot}
 # plot(df_park)
 ```

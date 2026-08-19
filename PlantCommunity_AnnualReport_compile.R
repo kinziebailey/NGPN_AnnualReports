@@ -1,239 +1,61 @@
+# This is the file that runs all the data wrangling for the
+# PlantComunity_AnnualReport.Rmd. If the Rmd does not knit, this is
+# where the error will come from. The portion of the code that is
+# commented out will need to be run for any troubleshooting.
+
 # Libraries ----
-library(readr) # tidyverse data import
+
+# getting newest version of NGPN package
+if (!requireNamespace("plantcomNGPN", quietly = TRUE)) {
+  pak::pak("KateMMiller/plantcomNGPN")
+}
+
+# libraries ----
+library(plantcomNGPN) # getting plant comm data
 library(dplyr) # data wrangling
+library(tidyr) # data wrangling
+library(stringr) # data wrangling
 library(ggplot2) # plotting
+library(purrr) # list options
 library(knitr) # for kable
 library(kableExtra) # custom kable features
 library(htmltools) # loading html files
-library(plantcomNGPN) # getting plant comm data
-library(tidyr) # data wrangling
-library(ggbasemap) # for mapping
-library(stringr) # data wrangling
+library(sf) # converting UTM to WGS84 lat lon
+library(DT) # for data table
 
-# Functions ----
-## map
-create_map <- function(df, park){
- ggplot() +
-    geom_point(data = df,
-               aes(x = UTM_X,
-                   y = UTM_Y))
+# loading data ----
+# to catch if it is already loaded in loop
+if(!exists("VIEWS_NGPN")){
+  importViews(import_path = "./data/NGPN_FFI_views_20260616.zip",
+            new_env = TRUE)
 }
 
-## species table
-species_table <- function(df, park){
+# Start of Source Code ----
 
-}
-
-# Loading data ----
-
-# path to data
-data_path <- file.path("./data",
-                       format(Sys.Date(), '%Y'),
-                       "NGPN_FFI_views_20260616.zip")
-
-importViews(import_path = data_path)
-
-# panel schedules
-panel_sch_wide <- read.csv("./data/panel_schedule.csv", na.strings = "")
-
-# pivot to longer
-panel_sch <- panel_sch_wide |>
-  pivot_longer(!Year,
-               names_to = "Panel") |>
-  drop_na() |>
-  # filtering to current date (will update every year)
-  filter(Year <= as.integer(format(Sys.Date(), "%Y"))) |>
-  select(Year,
-         Panel)
-
-# THRO
-panel_sch_wide_thro <- read.csv("./data/THRO_panel_schedule.csv", na.strings = "")
-
-# pivot to longer
-panel_sch_thro <- panel_sch_wide_thro |>
-  pivot_longer(!Year,
-               names_to = "Panel") |>
-  drop_na() |>
-  # filtering to current date (will update every year)
-  filter(Year <= as.integer(format(Sys.Date(), "%Y"))) |>
-  select(Year,
-         Panel)
-
-# Data wrangling ----
-## macro plots
+## Data wrangling ----
+### macro plots
 macro <- getMacroPlot() |>
   select(MacroPlot_Name,
-         vegtype = MacroPlot_UV4)
+         vegtype = MacroPlot_UV4,
+         Datum,
+         MacroPlot_GUID)
 
-## cover point
+### cover point
 covpts1 <- getCoverPoints()
 
-## taxonomy
+### taxonomy
 taxon <- VIEWS_NGPN$Taxa_Table |>
   dplyr::select(Symbol,
                 ScientificName,
-                # CommonName,
+                CommonName,
                 Family,
                 Genus,
-                Nativity) |>
+                Nativity,
+                Spp_GUID) |>
   distinct()
 
-# cleaning up taxon
-taxon_clean <- taxon |>
-  dplyr::mutate(
-    # cleaning up white space and converting blanks to NA
-    across(where(is.character),
-                 ~ na_if(trimws(.),
-                         "")),
-    # ScientificName fixes
-    ScientificName = case_when(
-      Symbol == "ACAM99" ~ "Acmispon americanus",
-      Symbol == "BARE" ~ "bare",
-      Symbol == "BOECH99" ~ "Boechera",
-      Symbol == "BOLE" ~ "bole",
-      Symbol == "CANOPY" ~ "Canopy",
-      Symbol == "CRUST" ~ "Crust",
-      Symbol == "DUFF" ~ "Duff",
-      Symbol == "FORB" ~ "Forb",
-      Symbol == "GRAMINOID" ~ "Graminoid",
-      Symbol == "LITT" ~ "Litter",
-      Symbol == "MOSS" ~ "Moss",
-      Symbol == "NOSP" ~ "No species",
-      Symbol == "PIMI7" ~ "Piptatherum micranthum", # says unknown?
-      Symbol == "ROCK" ~ "Rock",
-      Symbol == "ROOT" ~ "Root",
-      Symbol == "SCAT" ~ "Scat",
-      Symbol == "SHRUB" ~ "Shrub",
-      Symbol == "SYWY99" ~ "Synthyris wyomingensis",
-      Symbol == "TRADE" ~ "Tradescantia",
-      Symbol == "UNKGRAM" ~ "Unknown graminoid",
-      Symbol == "VEG" ~ "Unknown veg",
-      Symbol == "WATER" ~ "Water",
-      Symbol == "WOOD" ~ "Wood",
-      Symbol == "XASP99" ~ "Xanthium spinulosum",
-      TRUE ~ ScientificName),
-    # Family name fixes
-    Family = case_when(
-      Symbol == "ARPY4" ~ "Brassicaceae",
-      Symbol == "BARE" ~ "bare",
-      Symbol == "BRJA" ~ "Poaceae",
-      Symbol == "BOCO4" ~ "Brassicaceae",
-      Symbol == "BEDROCK" ~ "BEDROCK",
-      Symbol == "BOLE" ~ "bole",
-      Symbol == "CAFO3" ~ "Cyperaceae",
-      Symbol == "CANOPY" ~ "Canopy",
-      Symbol == "CRUST" ~ "Crust",
-      Symbol == "DICA18" ~ "Asteraceae",
-      Symbol == "DRFI3" ~ "Rosaceae",
-      Symbol == "DUFF" ~ "Duff",
-      Symbol == "ERAS2" ~ "Brassicaceae",
-      Symbol == "ERHO13" ~ "Caryophyllaceae",
-      Genus == "Euphorbia" ~ "Euphorbiaceae",
-      Symbol == "FACO" ~ "Polygonaceae",
-      Symbol == "FORB" ~ "Forb",
-      Symbol == "GRAMINOID" ~ "Graminoid",
-      Symbol == "LITT" ~ "Litter",
-      Symbol == "MOSS" ~ "Moss",
-      Symbol == "MUSIN" ~ "Apiaceae",
-      Symbol == "NOSP" ~ "No species",
-      Genus == "Oenothera" ~ "Onagraceae",
-      Symbol == "PIMI7" ~ NA,
-      Symbol == "POIN" ~ "Poaceae",
-      Symbol == "PRTR4" ~ "Liliaceae",
-      Symbol == "ROCK" ~ "Rock",
-      Symbol == "ROOT" ~ "Root",
-      Symbol == "SCAT" ~ "Scat",
-      Symbol == "SHRUB" ~ "Shrub",
-      Symbol == "SOPT3" ~ "Solanaceae",
-      Symbol == "SORI2" ~ "Asteraceae",
-      Symbol == "SYWY99" ~ "Plantaginaceae",
-      Symbol == "TOVE2" ~ "Melanthiaceae",
-      Symbol == "TUGL" ~ "Brassicaceae",
-      Symbol == "UNKFORB" ~ "Unknown family",
-      Symbol == "UNKFORBANN" ~ "Unknown family",
-      Symbol == "UNKFORBPER" ~ "Unknown family",
-      Symbol == "UNKGRAM" ~ "Unknown family",
-      Symbol == "UNKGRAMANN" ~ "Unknown family",
-      Symbol == "UNKGRAMPER" ~ "Unknown family",
-      Symbol == "VEG" ~ "Unknown family",
-      Symbol == "WATER" ~ "Water",
-      Symbol == "WOOD" ~ "Wood",
-      TRUE ~ Family),
-    # Genus fixes
-    Genus = case_when(
-      Symbol == "BARE" ~ "bare",
-      Symbol == "BEDROCK" ~ "BEDROCK",
-      Symbol == "BOLE" ~ "bole",
-      Symbol == "BRJA" ~ "Bromus",
-      Symbol == "CAFO3" ~ "Carex",
-      Symbol == "CANOPY" ~ "Canopy",
-      Symbol == "CRUST" ~ "Crust",
-      Symbol == "DUFF" ~ "Duff",
-      Symbol == "EUSE5" ~ "Euphorbia",
-      Symbol == "FORB" ~ "Forb",
-      Symbol == "GRAMINOID" ~ "Graminoid",
-      Symbol == "LITT" ~ "Litter",
-      Symbol == "MOSS" ~ "Moss",
-      Symbol == "NOSP" ~ "No species",
-      Symbol == "OESE3" ~ "Oenothera",
-      Symbol == "PIMI7" ~ "Piptatherum",
-      Symbol == "ROCK" ~ "Rock",
-      Symbol == "ROOT" ~ "Root",
-      Symbol == "SCAT" ~ "Scat",
-      Symbol == "SHRUB" ~ "Shrub",
-      Symbol == "SYWY99" ~ "Synthyris",
-      Symbol == "UNKFORB" ~ "Unknown genus",
-      Symbol == "UNKFORBANN" ~ "Unknown genus",
-      Symbol == "UNKFORBPER" ~ "Unknown genus",
-      Symbol == "UNKGRAM" ~ "Unknown genus",
-      Symbol == "UNKGRAMANN" ~ "Unknown genus",
-      Symbol == "UNKGRAMPER" ~ "Unknown genus",
-      Symbol == "VEG" ~ "Unknown genus",
-      Symbol == "WATER" ~ "Water",
-      Symbol == "WOOD" ~ "Wood",
-      Symbol == "XASP99" ~ "Xanthium",
-      TRUE ~ Genus),
-    # Nativity fixes
-    Nativity = case_when(
-      ScientificName == "Amaranthus retroflexus" ~ FALSE,
-      Symbol == "BOST4" ~ TRUE,
-      Symbol == "DALEA" ~ TRUE,
-      Symbol == "ERIGE2" ~ TRUE,
-      Symbol == "FEOV" ~ FALSE,
-      Symbol == "HIERA" ~ TRUE,
-      Symbol == "JUNCU" ~ TRUE,
-      Symbol == "MOSS" ~ FALSE,
-      Symbol == "PHYSA" ~ TRUE,
-      Symbol == "PIMI7" ~ TRUE,
-      Symbol == "POLYG4" ~ TRUE,
-      Symbol == "RIBES" ~ TRUE,
-      Symbol == "SOPT3" ~ TRUE,
-      Symbol == "SYMPH4" ~ TRUE,
-      Symbol == "TRADE" ~ TRUE,
-      Symbol == "UNKSHRUB" ~ FALSE,
-      TRUE ~ Nativity)) |>
-  distinct() |>
-  # removing XXXX data
-  dplyr::filter(!Symbol == "XXXX")
-
-taxon_check <- taxon_clean |>
-  group_by(Symbol) |>
-  filter(n() > 1)
-
-## merging and filtering panel schedule
-covpt_filter <- bind_rows(covpts1 |>
-                            filter(!Unit_Name == "THRO") |>
-                            semi_join(panel_sch,
-                                      by = c("MacroPlot_Purpose" = "Panel",
-                                             "year" = "Year")),
-                          covpts1 |>
-                            filter(Unit_Name == "THRO") |>
-                            semi_join(panel_sch_thro,
-                                      by = c("MacroPlot_Purpose" = "Panel",
-                                             "year" = "Year")))
-
-# removing symbol NA and selecting columns
-covpts <- covpt_filter |>
+# wrangling cover points
+covpts <- covpts1 |>
   select(MacroPlot_Name,
          Unit_Name,
          UTM_X,
@@ -250,28 +72,157 @@ covpts <- covpt_filter |>
          Point,
          Tape,
          Order,
-         Height) |>
+         Height,
+         MacroPlot_GUID,
+         Spp_GUID) |>
+  # nremoving NA symbol
   filter(!is.na(Symbol)) |>
+  # getting distinct values
   distinct() |>
-  filter(Transect %in% 1:2)
-
-covpts$year <- as.numeric(covpts$year)
+  # filtering weird transects
+  filter(Transect %in% 1:2) |>
+  # fixing year
+  mutate(year = as.integer(year))
 
 # joining
 macro_covpts <- left_join(covpts,
-                          macro,
-                          by = join_by(MacroPlot_Name)) |>
+                          macro) |>
   # keep plots with grassland or badlands sparse
   filter(grepl("UG|BS", vegtype)) |>
   # drop plots with Ponderosa pine also in vegtype
-  filter(!grepl("PP", vegtype))|>
-  # only has 2 UG plots
-  filter(!Unit_Name %in% "JECA") |>
+  filter(!grepl("PP", vegtype)) |>
   # joining taxon table
   left_join(taxon) |>
-  distinct()
+  distinct() |>
+  select(-MacroPlot_GUID,
+         -Spp_GUID)
 
 # Current year samples
 covpts_current <- macro_covpts |>
   dplyr::filter(year == 2025)
-  # dplyr::filter(year == as.integer(format(Sys.Date(), "%Y")))
+# dplyr::filter(year == as.integer(format(Sys.Date(), "%Y")))
+
+# Historic Data
+covpts_historic <- macro_covpts |>
+  dplyr::filter(year < 2025)
+# dplyr::filter(year < as.integer(format(Sys.Date(), "%Y")))
+
+## Data Prep Functions ----
+
+### map
+prep_map <- function(df){
+  df |>
+    # selecting coord data
+    select(MacroPlot_Name,
+           UTM_X,
+           UTM_Y,
+           UTMzone,
+           Datum) |>
+    # getting distinct values
+    distinct() |>
+    # removing NA
+    filter(!is.na(UTM_X),
+           !is.na(UTM_Y),
+           !is.na(UTMzone)) |>
+    # UTM information
+    mutate(zone = as.integer(gsub("[^0-9]", "", UTMzone)),
+           hemi = ifelse(grepl("[sS]", UTMzone), "S", "N"),
+           # correcting for now
+           Datum = case_when(grepl("NAD83", Datum, ignore.case = TRUE) ~ "NAD83",
+                             grepl("WGS84", Datum, ignore.case = TRUE) ~ "WGS84",
+                             grepl("ITRF", Datum, ignore.case = TRUE) ~ "WGS84",   # treat as WGS84
+                             TRUE ~ NA_character_),
+           epsg = case_when(Datum == "NAD83" & hemi == "N" ~ 26900 + zone,
+                            Datum == "WGS84" & hemi == "N" ~ 32600 + zone,
+                            TRUE ~ NA_real_)) |>
+    # removing NA
+    filter(!is.na(epsg)) |>
+    # getting one sf per EPSG
+    group_split(epsg) |>
+    # creating sf per group
+    map(~st_as_sf(.x, coords = c("UTM_X",
+                                 "UTM_Y"),
+                  crs = unique(.x$epsg))) |>
+    # transforming to same CRS
+    map(~st_transform(.x, 4326)) |>
+    # binding rows
+    bind_rows() |>
+    # getting lat lon
+    mutate(lon = st_coordinates(geometry)[,1],
+           lat = st_coordinates(geometry)[,2])
+
+}
+
+### species list
+prep_species <- function(df){
+  df |>
+    # selecting needed columns
+    select(Family,
+           Symbol,
+           ScientificName,
+           CommonName,
+           Nativity) |>
+    # getting unique rows
+    distinct() |>
+    # sorting by Family, SciName, Nativity
+    arrange(Family,
+            ScientificName,
+            Nativity) |>
+    # renaming symbol
+    rename(`Scientific Name` = ScientificName,
+           Code = Symbol)
+}
+
+## Functions ----
+### map
+create_map <- function(df){
+
+  ggplot() +
+  geom_sf(data = df,
+          color = "#2c7fb8",
+          size = 2) +
+    ggrepel::geom_text_repel(data = df,
+                             aes(x = lon,
+                                 y = lat,
+                                 label = MacroPlot_Name),
+                             size = 3) +
+    theme_minimal()
+}
+
+### species table
+species_table <- function(df){
+  datatable(df,
+            class = 'cell-border stripe',
+            rownames = FALSE,
+            extensions = c("FixedColumns", "Buttons"),
+            options = list(
+              # initComplete = htmlwidgets::JS(
+              #   "function(settings, json) {",
+              #   "$('body').css({'font-size': '11px'});",
+              #   "$('body').css({'font-family': 'Arial'});",
+              #   "$(this.api().table().header()).css({'font-size': '11px'});",
+              #   "$(this.api().table().header()).css({'font-family': 'Arial'});",
+              #   "}"),
+              pageLength = nrow(df),
+              autoWidth = FALSE,
+              scrollX = '850px',
+              scrollY = '600px',
+              scrollCollapse = TRUE,
+              fixedColumns = list(leftColumns = 1),
+              dom = "Blfrtip",
+              buttons = c('copy', 'csv', 'print')
+            ),
+            filter = list(position = c('top'),
+                          clear = FALSE))
+    # knitr::kable(format = "html",
+    #              align = 'c') |>
+    # kableExtra::kable_styling(fixed_thead = TRUE,
+    #                           bootstrap_options = c('condensed'),
+    #                           full_width = TRUE,
+    #                           position = 'left',
+    #                           font_size = 12)
+    # kableExtra::kable_classic(full_width = FALSE)
+
+}
+
+
