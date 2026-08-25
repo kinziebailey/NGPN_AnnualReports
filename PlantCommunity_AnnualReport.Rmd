@@ -19,12 +19,16 @@ source("PlantCommunity_AnnualReport_compile.R")
 ```
 
 ```{r data, include=FALSE}
+# Species list ----
+species <- covpts4
+
+# Abundance Data ----
 # current years data
-df_park <- covpts_current |> 
+df_park <- abundance_current |> 
   dplyr::filter(Unit_Name == params$park)
 
 # historic data
-df_historic <- covpts_historic |> 
+df_historic <- abundance_historic |> 
   dplyr::filter(Unit_Name == params$park)
 ```
 
@@ -73,12 +77,12 @@ htmltools::includeHTML(file.path("main_takeaways",
 ```
 
 ```{r species_table}
-species_data <- prep_species(df_park)
+species_data <- prep_species(species)
 
 species_table(species_data)
 ```
 
-### Percent Cover
+### Relative Abundance
 
 #### Main Takeaways 
 ```{r percentcover_takeaways, results='asis'}

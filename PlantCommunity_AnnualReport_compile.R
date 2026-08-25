@@ -51,11 +51,26 @@ taxon <- VIEWS_NGPN$Taxa_Table |>
                 Family,
                 Genus,
                 Nativity,
+                LifeForm_Name,
                 Spp_GUID) |>
+  # changing grass-like to graminoid
+  mutate(LifeForm_Name = ifelse(LifeForm_Name == "Grass-like",
+                                "Graminoid",
+                                LifeForm_Name)) |>
+  # changing undefined to NA
+  mutate(LifeForm_Name = ifelse(LifeForm_Name == "Undefined",
+                                NA_character_,
+                                LifeForm_Name)) |>
+  # filling in lifeform by species code
+  fill(LifeForm_Name,
+       .by = Symbol) |>
+  mutate(LifeForm_Name = ifelse(is.na(LifeForm_Name),
+                                "Not Defined",
+                                LifeForm_Name)) |>
   distinct()
 
 # wrangling cover points
-covpts <- covpts1 |>
+covpts2 <- covpts1 |>
   select(MacroPlot_Name,
          Unit_Name,
          UTM_X,
@@ -85,8 +100,8 @@ covpts <- covpts1 |>
   mutate(year = as.integer(year))
 
 # joining
-macro_covpts <- left_join(covpts,
-                          macro) |>
+covpts3 <- left_join(covpts2,
+                     macro) |>
   # keep plots with grassland or badlands sparse
   filter(grepl("UG|BS", vegtype)) |>
   # drop plots with Ponderosa pine also in vegtype
@@ -97,13 +112,73 @@ macro_covpts <- left_join(covpts,
   select(-MacroPlot_GUID,
          -Spp_GUID)
 
-# Current year samples
-covpts_current <- macro_covpts |>
+# correcting lifeform
+covpts4 <- covpts3 |>
+  # changing LifeForm names
+  mutate(LifeForm_simp = case_when(Symbol == "BARE" ~ "Bare",
+                                   Symbol == "LITT" ~ "Litter",
+                                   # non-vascular
+                                   !Symbol %in% c("BARE", "LITT") &
+                                     LifeForm_Name == "Nonvascular" ~ "Other Non-Vasc",
+                                   # graminoids
+                                   LifeForm_Name == "Graminoid" & Nativity == FALSE ~ "Graminoid - Non Native",
+                                   LifeForm_Name == "Graminoid" & Nativity == TRUE ~ "Graminoid - Native",
+                                   # woody
+                                   LifeForm_Name %in% c("Shrub", "Subshrub", "Tree", "Vine") &
+                                     Nativity == TRUE ~ "Woody - Native",
+                                   LifeForm_Name %in% c("Shrub", "Subshrub", "Tree", "Vine") &
+                                     Nativity == FALSE ~ "Woody - Non Native",
+                                   # forb/herb
+                                   LifeForm_Name == "Forb/herb" & Nativity == FALSE ~ "Forb/herb - Non Native",
+                                   LifeForm_Name == "Forb/herb" & Nativity == TRUE ~ "Forb/herb - Native",
+                                   # other
+                                   TRUE ~ LifeForm_Name)) |>
+  # removing undefined (e.g. rock, crust, moss, etc.)
+  filter(!LifeForm_simp %in% "Undefined")
+
+### Calculating relative abundance ----
+# Absolute cover values (including bare ground): cover values that reflect whole plot
+rel_abund <- covpts4 |>
+  # getting total number of points
+  mutate(total_points = n_distinct(Point),
+         .by = c("Unit_Name",
+                 "MacroPlot_Name",
+                 "year",
+                 "Transect",
+                 "UTM_X",
+                 "UTM_Y",
+                 "UTMzone")) |>
+  # getting the distinct number of points for each lifeform per grouping
+  summarise(lifeform_hits = n_distinct(Point),
+            .by = c("Unit_Name",
+                    "MacroPlot_Name",
+                    "year",
+                    "Transect",
+                    "UTM_X",
+                    "UTM_Y",
+                    "UTMzone",
+                    "LifeForm_simp",
+                    "total_points")) |>
+  # calculating relative abundance
+  mutate(rel_abundance = (lifeform_hits / total_points) * 100) |>
+  # plot level abundance
+  summarise(rel_abundance_mean = mean(rel_abundance),
+            rel_abundance_sd = sd(rel_abundance),
+            .by = c("Unit_Name",
+                    "MacroPlot_Name",
+                    "year",
+                    "UTM_X",
+                    "UTM_Y",
+                    "UTMzone",
+                    "LifeForm_simp"))
+
+## Current year samples ----
+abundance_current <- rel_abund |>
   dplyr::filter(year == 2025)
 # dplyr::filter(year == as.integer(format(Sys.Date(), "%Y")))
 
 # Historic Data
-covpts_historic <- macro_covpts |>
+abundance_historic <- rel_abund |>
   dplyr::filter(year < 2025)
 # dplyr::filter(year < as.integer(format(Sys.Date(), "%Y")))
 
@@ -196,13 +271,6 @@ species_table <- function(df){
             rownames = FALSE,
             extensions = c("FixedColumns", "Buttons"),
             options = list(
-              # initComplete = htmlwidgets::JS(
-              #   "function(settings, json) {",
-              #   "$('body').css({'font-size': '11px'});",
-              #   "$('body').css({'font-family': 'Arial'});",
-              #   "$(this.api().table().header()).css({'font-size': '11px'});",
-              #   "$(this.api().table().header()).css({'font-family': 'Arial'});",
-              #   "}"),
               pageLength = nrow(df),
               autoWidth = FALSE,
               scrollX = '850px',
@@ -214,14 +282,6 @@ species_table <- function(df){
             ),
             filter = list(position = c('top'),
                           clear = FALSE))
-    # knitr::kable(format = "html",
-    #              align = 'c') |>
-    # kableExtra::kable_styling(fixed_thead = TRUE,
-    #                           bootstrap_options = c('condensed'),
-    #                           full_width = TRUE,
-    #                           position = 'left',
-    #                           font_size = 12)
-    # kableExtra::kable_classic(full_width = FALSE)
 
 }
 
